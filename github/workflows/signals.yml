@@ -1,0 +1,27 @@
+name: Signal-Waechter
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # alle 15 Minuten
+  workflow_dispatch:          # manueller Start-Knopf zum Testen
+
+permissions:
+  contents: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Code holen
+        uses: actions/checkout@v4
+
+      - name: Signale pruefen
+        run: python3 check_signals.py
+
+      - name: Signal-Stand speichern
+        run: |
+          git config user.name "signal-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add state.json
+          git diff --cached --quiet || git commit -m "Signal-Stand aktualisiert"
+          git push
