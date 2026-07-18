@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Signal</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0C10; --panel:#12151B; --line:#232733;
+    --text:#E8EAED; --muted:#7A8290;
+    --bull:#2FD675; --bear:#FF4757; --amber:#F5A623;
+  }
+  *{box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:'Space Grotesk',sans-serif;
+    display:flex; flex-direction:column;
+    padding:max(env(safe-area-inset-top),16px) 16px max(env(safe-area-inset-bottom),16px);
+    max-width:720px; margin:0 auto;
+  }
+
+  .coins{display:flex; gap:10px; margin-bottom:14px;}
+  .coinBtn{
+    flex:1; padding:16px 0; border-radius:14px; border:1px solid var(--line);
+    background:var(--panel); color:var(--muted);
+    font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:18px;
+    cursor:pointer; transition:all .15s;
+  }
+  .coinBtn.active{background:var(--text); color:var(--bg); border-color:var(--text);}
+
+  .tfs{display:flex; gap:6px; margin-bottom:14px;}
+  .tfBtn{
+    flex:1; padding:9px 0; border-radius:10px; border:1px solid var(--line);
+    background:var(--panel); color:var(--muted);
+    font-family:'JetBrains Mono',monospace; font-size:12px; cursor:pointer;
+  }
+  .tfBtn.active{background:var(--line); color:var(--text); border-color:var(--muted);}
+
+  .signalBox{
+    border-radius:20px; padding:28px 20px; text-align:center; margin-bottom:14px;
+    background:var(--panel); border:1px solid var(--line);
+    transition:background .4s, border-color .4s;
+  }
+  .signalBox.long{background:rgba(47,214,117,.10); border-color:var(--bull);}
+  .signalBox.short{background:rgba(255,71,87,.10); border-color:var(--bear);}
+  .sigWord{
+    font-size:64px; font-weight:700; letter-spacing:.02em; line-height:1;
+  }
+  .sigWord.long{color:var(--bull);}
+  .sigWord.short{color:var(--bear);}
+  .sigWord.wait{color:var(--amber);}
+  .sigPct{
+    font-family:'JetBrains Mono',monospace; font-size:15px; color:var(--muted); margin-top:10px;
+  }
+  .sigPrice{
+    font-family:'JetBrains Mono',monospace; font-size:14px; color:var(--text); margin-top:4px; opacity:.8;
+  }
+  .levels{
+    display:flex; justify-content:center; gap:18px; margin-top:12px;
+    font-family:'JetBrains Mono',monospace; font-size:13px;
+  }
+  .levels:empty{display:none;}
+  .lvlSL{color:var(--bear);}
+  .lvlTP{color:var(--bull);}
+  .pattern{
+    font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted); margin-top:10px;
+  }
+  .pattern:empty{display:none;}
+
+  .chartWrap{flex:1; min-height:220px; background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:14px; position:relative;}
+  canvas#chart{width:100%; height:100%; display:block;}
+
+  .foot{
+    display:flex; justify-content:space-between; align-items:center;
+    margin-top:12px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted);
+  }
+  .foot .err{color:var(--bear);}
+  .heatBtn{
+    background:var(--panel); border:1px solid var(--line); color:var(--muted);
+    font-family:'JetBrains Mono',monospace; font-size:11px;
+    padding:6px 12px; border-radius:8px; cursor:pointer;
+  }
+  .heatBtn.active{color:#a78bfa; border-color:#a78bfa;}
+  .dot{display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--bull); margin-right:6px; vertical-align:1px;}
+  .dot.stale{background:var(--amber);}
+</style>
+</head>
+<body>
+
+  <div class="coins">
+    <button class="coinBtn active" data-sym="BTCUSDT" data-name="Bitcoin">BTC</button>
+    <button class="coinBtn" data-sym="ETHUSDT" data-name="Ethereum">ETH</button>
+  </div>
+
+  <div class="tfs" id="tfs">
+    <button class="tfBtn" data-tf="1m">1m</button>
+    <button class="tfBtn" data-tf="5m">5m</button>
+    <button class="tfBtn" data-tf="15m">15m</button>
+    <button class="tfBtn" data-tf="30m">30m</button>
+    <button class="tfBtn" data-tf="1h">1h</button>
+    <button class="tfBtn" data-tf="4h">4h</button>
+    <button class="tfBtn active" data-tf="1d">1T</button>
+  </div>
+
+  <div class="signalBox" id="sigBox">
+    <div class="sigWord wait" id="sigWord">…</div>
+    <div class="sigPct" id="sigPct">lädt Daten</div>
+    <div class="sigPrice" id="sigPrice"></div>
+    <div class="levels" id="levels"></div>
+    <div class="pattern" id="pattern"></div>
+  </div>
+
+  <div class="chartWrap">
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="foot">
+    <span id="updated"><span class="dot stale"></span>—</span>
+    <button id="heatBtn" class="heatBtn active">Zonen an</button>
+    <span id="err"></span>
+  </div>
+
+<script>
+const HOSTS = [
+  "https://data-api.binance.vision/api/v3",
+  "https://api.binance.com/api/v3"
+];
+let currentSym = "BTCUSDT";
+let currentTf = "1d";
+let showHeat = true;
+let timer = null;
+let lastSignal = {}; // pro Symbol+Zeitfenster merken für Benachrichtigung
+
+document.querySelectorAll('.coinBtn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.coinBtn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    currentSym = b.dataset.sym;
+    refresh();
+  });
+});
+document.querySelectorAll('.tfBtn').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    document.querySelectorAll('.tfBtn').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    currentTf = b.dataset.tf;
+    refresh();
+  });
+});
+
+// ---------- Daten ----------
+async function fetchCandles(sym, tf){
+  let lastErr;
+  for(const host of HOSTS){
+    try{
+      const res = await fetch(`${host}/klines?symbol=${sym}&interval=${tf}&limit=400`);
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      const raw = await res.json();
+      return raw.map(k=>({t:k[0], o:+k[1], h:+k[2], l:+k[3], c:+k[4], v:+k[5]}));
+    }catch(e){ lastErr = e; }
+  }
+  throw lastErr || new Error('keine Quelle erreichbar');
+}
+
+// ---------- Score (gleiche Logik wie TradingView-Script) ----------
+function ema(a,n){const k=2/(n+1);const o=[a[0]];for(let i=1;i<a.length;i++)o.push(a[i]*k+o[i-1]*(1-k));return o;}
+function sma(a,n){const o=new Array(a.length).fill(null);let s=0;for(let i=0;i<a.length;i++){s+=a[i];if(i>=n)s-=a[i-n];if(i>=n-1)o[i]=s/n;}return o;}
+function stdev(a,n){const o=new Array(a.length).fill(null);for(let i=n-1;i<a.length;i++){let m=0;for(let j=i-n+1;j<=i;j++)m+=a[j];m/=n;let v=0;for(let j=i-n+1;j<=i;j++)v+=(a[j]-m)**2;o[i]=Math.sqrt(v/n);}return o;}
+function rsi(a,n){const o=new Array(a.length).fill(50);let g=0,l=0;for(let i=1;i<=n;i++){const d=a[i]-a[i-1];if(d>=0)g+=d;else l-=d;}g/=n;l/=n;o[n]=100-100/(1+(l===0?100:g/l));for(let i=n+1;i<a.length;i++){const d=a[i]-a[i-1];g=(g*(n-1)+(d>0?d:0))/n;l=(l*(n-1)+(d<0?-d:0))/n;o[i]=100-100/(1+(l===0?100:g/l));}return o;}
+
+// ---------- Candlestick-Muster (nur Info, fließt NICHT in den Score) ----------
+function detectPattern(candles){
+  const n=candles.length;
+  if(n<4) return null;
+  const c1=candles[n-1], c2=candles[n-2], c3=candles[n-3];
+  const body=k=>Math.abs(k.c-k.o);
+  const range=k=>k.h-k.l || 1e-9;
+  const upWick=k=>k.h-Math.max(k.o,k.c);
+  const dnWick=k=>Math.min(k.o,k.c)-k.l;
+  const bull=k=>k.c>k.o, bear=k=>k.c<k.o;
+  // Trend-Kontext: einfache Richtung der letzten 8 Kerzen davor
+  const pre=candles.slice(n-10,n-1);
+  const downCtx = pre[pre.length-1].c < pre[0].c;
+  const upCtx   = pre[pre.length-1].c > pre[0].c;
+
+  // Doji: Körper winzig im Verhältnis zur Spanne
+  if(body(c1) < range(c1)*0.1)
+    return {name:'Doji', dir:'neutral', hint:'Unentschlossenheit'};
+
+  // Hammer: kleiner Körper oben, langer unterer Docht, nach Abwärtskontext
+  if(downCtx && dnWick(c1) > body(c1)*2 && upWick(c1) < body(c1))
+    return {name:'Hammer', dir:'bull', hint:'mögliche Umkehr nach unten hin'};
+
+  // Shooting Star: kleiner Körper unten, langer oberer Docht, nach Aufwärtskontext
+  if(upCtx && upWick(c1) > body(c1)*2 && dnWick(c1) < body(c1))
+    return {name:'Shooting Star', dir:'bear', hint:'mögliches Top'};
+
+  // Bullish Engulfing
+  if(bear(c2) && bull(c1) && c1.c>c2.o && c1.o<c2.c && downCtx)
+    return {name:'Bullish Engulfing', dir:'bull', hint:'Käufer übernehmen'};
+
+  // Bearish Engulfing
+  if(bull(c2) && bear(c1) && c1.o>c2.c && c1.c<c2.o && upCtx)
+    return {name:'Bearish Engulfing', dir:'bear', hint:'Verkäufer übernehmen'};
+
+  // Harami (Umkehr-Hinweis): kleiner Körper komplett im großen Vorgänger
+  if(body(c2)>range(c2)*0.5 && Math.max(c1.o,c1.c)<Math.max(c2.o,c2.c) && Math.min(c1.o,c1.c)>Math.min(c2.o,c2.c))
+    return {name: bear(c2)?'Bullish Harami':'Bearish Harami', dir: bear(c2)?'bull':'bear', hint:'Momentum lässt nach'};
+
+  // Three White Soldiers / Three Black Crows
+  if(bull(c1)&&bull(c2)&&bull(c3) && c1.c>c2.c && c2.c>c3.c && body(c1)>range(c1)*0.5 && body(c2)>range(c2)*0.5)
+    return {name:'Three White Soldiers', dir:'bull', hint:'starke Fortsetzung'};
+  if(bear(c1)&&bear(c2)&&bear(c3) && c1.c<c2.c && c2.c<c3.c && body(c1)>range(c1)*0.5 && body(c2)>range(c2)*0.5)
+    return {name:'Three Black Crows', dir:'bear', hint:'starke Fortsetzung'};
+
+  return null;
+}
+
+function atr(candles, n){
+  const trs=[];
+  for(let i=1;i<candles.length;i++){
+    const h=candles[i].h, l=candles[i].l, pc=candles[i-1].c;
+    trs.push(Math.max(h-l, Math.abs(h-pc), Math.abs(l-pc)));
+  }
+  // Wilder-Glättung
+  let a=trs.slice(0,n).reduce((x,y)=>x+y,0)/n;
+  for(let i=n;i<trs.length;i++) a=(a*(n-1)+trs[i])/n;
+  return a;
+}
+
+function score(candles){
+  const c=candles.map(x=>x.c), o=candles.map(x=>x.o), v=candles.map(x=>x.v);
+  const i=c.length-1;
+  const eF=ema(c,20), eM=ema(c,50), eS=ema(c,200);
+  const r=rsi(c,14);
+  const mF=ema(c,12), mS=ema(c,26);
+  const macd=c.map((_,j)=>mF[j]-mS[j]);
+  const sig=ema(macd,9);
+  const bb=sma(c,20), bd=stdev(c,20);
+  const va=sma(v,20);
+
+  let t=0;
+  t+= c[i]>eF[i]?1:-1; t+= eF[i]>eM[i]?1:-1; t+= eM[i]>eS[i]?1:-1;
+  let m=0;
+  m+= r[i]>50?1:-1; m+= macd[i]>sig[i]?1:-1; m+= macd[i]>macd[i-1]?1:-1;
+  let vs=0;
+  const vc = v[i] > (va[i]??v[i])*1.2;
+  if(vc && c[i]>o[i]) vs=1; else if(vc && c[i]<o[i]) vs=-1;
+  let vo=0;
+  const dev=(bd[i]??1)*2||1;
+  vo+= (c[i]-(bb[i]??c[i]))/dev>0?1:-1;
+
+  let raw=(t/3*40)+(m/3*30)+(vs*15)+(vo*15);
+  // Squeeze-Dämpfung
+  const bwNow=(dev*2)/(bb[i]??c[i]);
+  let bwSum=0,bwN=0;
+  for(let j=Math.max(20,i-100);j<=i;j++){if(bb[j]&&bd[j]){bwSum+=(bd[j]*4)/bb[j];bwN++;}}
+  if(bwN>10 && bwNow < (bwSum/bwN)*0.7) raw*=0.6;
+  return Math.max(-100,Math.min(100,raw));
+}
+
+// ---------- Chart (Candlesticks) ----------
+// ---------- Liquiditäts-Zonen ----------
+// Volumen-Profil: wo wurde viel gehandelt (dort liegen viele Positionen)
+// + Swing-Hochs/Tiefs: darüber/darunter sammeln sich Stops
+function liquidityZones(candles){
+  const data=candles.slice(-200);
+  const min=Math.min(...data.map(d=>d.l)), max=Math.max(...data.map(d=>d.h));
+  const BINS=40, range=(max-min)||1;
+  const bins=new Array(BINS).fill(0);
+  data.forEach(d=>{
+    const typ=(d.h+d.l+d.c)/3;
+    let idx=Math.floor((typ-min)/range*BINS);
+    idx=Math.max(0,Math.min(BINS-1,idx));
+    bins[idx]+=d.v;
+  });
+  const maxVol=Math.max(...bins)||1;
+  const zones=bins.map((v,i)=>({
+    lo:min+i/BINS*range, hi:min+(i+1)/BINS*range, strength:v/maxVol
+  })).filter(z=>z.strength>0.35);
+
+  // Swing-Hochs/Tiefs der letzten 60 Kerzen (Stop-Cluster)
+  const recent=candles.slice(-60);
+  const swings=[];
+  for(let i=3;i<recent.length-3;i++){
+    const isHigh=recent[i].h>=Math.max(...recent.slice(i-3,i+4).map(d=>d.h));
+    const isLow =recent[i].l<=Math.min(...recent.slice(i-3,i+4).map(d=>d.l));
+    if(isHigh) swings.push({p:recent[i].h, type:'high'});
+    if(isLow)  swings.push({p:recent[i].l, type:'low'});
+  }
+  return {zones, swings};
+}
+
+function drawChart(candles, sl=null, tp=null, state='wait'){
+  const cv=document.getElementById('chart');
+  const ctx=cv.getContext('2d');
+  const dpr=window.devicePixelRatio||1;
+  const w=cv.clientWidth, h=cv.clientHeight;
+  cv.width=w*dpr; cv.height=h*dpr; ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+
+  const data=candles.slice(-90);
+  let min=Math.min(...data.map(d=>d.l)), max=Math.max(...data.map(d=>d.h));
+  if(sl!==null){ min=Math.min(min,sl,tp); max=Math.max(max,sl,tp); }
+  const range=(max-min)||1;
+  const cw=w/data.length;
+  const y=p=>h-((p-min)/range)*h*0.92-h*0.04;
+
+  // Liquiditäts-Heat zuerst (ganz nach hinten)
+  if(showHeat){
+    const {zones, swings}=liquidityZones(candles);
+    zones.forEach(z=>{
+      const yTop=y(z.hi), yBot=y(z.lo);
+      ctx.fillStyle=`rgba(120,90,255,${0.10+z.strength*0.22})`;
+      ctx.fillRect(0, Math.min(yTop,yBot), w, Math.abs(yBot-yTop));
+    });
+    swings.forEach(s=>{
+      ctx.strokeStyle = s.type==='high' ? 'rgba(245,166,35,0.5)' : 'rgba(245,166,35,0.5)';
+      ctx.setLineDash([2,4]);
+      ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(0,y(s.p)); ctx.lineTo(w,y(s.p)); ctx.stroke();
+      ctx.setLineDash([]);
+    });
+  }
+
+  // SL/TP-Linien zuerst (hinter die Kerzen)
+  if(sl!==null){
+    ctx.setLineDash([6,5]);
+    ctx.lineWidth=1.5;
+    ctx.strokeStyle='#FF4757';
+    ctx.beginPath(); ctx.moveTo(0,y(sl)); ctx.lineTo(w,y(sl)); ctx.stroke();
+    ctx.strokeStyle='#2FD675';
+    ctx.beginPath(); ctx.moveTo(0,y(tp)); ctx.lineTo(w,y(tp)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.font='11px monospace';
+    ctx.fillStyle='#FF4757'; ctx.fillText('SL', 4, y(sl)-4);
+    ctx.fillStyle='#2FD675'; ctx.fillText('TP', 4, y(tp)-4);
+  }
+
+  data.forEach((d,idx)=>{
+    const x=idx*cw+cw/2;
+    const up=d.c>=d.o;
+    ctx.strokeStyle=up?'#2FD675':'#FF4757';
+    ctx.fillStyle=up?'#2FD675':'#FF4757';
+    ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(x,y(d.h)); ctx.lineTo(x,y(d.l)); ctx.stroke();
+    const bh=Math.max(1,Math.abs(y(d.o)-y(d.c)));
+    ctx.fillRect(x-cw*0.32, Math.min(y(d.o),y(d.c)), cw*0.64, bh);
+  });
+}
+
+// ---------- Anzeige + optionale Benachrichtigung ----------
+function render(sym, candles, s){
+  const pctLong=Math.round((s+100)/2);
+  const word=document.getElementById('sigWord');
+  const box=document.getElementById('sigBox');
+  const state = s>=40?'long' : s<=-40?'short' : 'wait';
+  word.textContent = state==='long'?'LONG': state==='short'?'SHORT':'WARTEN';
+  word.className = 'sigWord '+state;
+  box.className = 'signalBox '+(state==='wait'?'':state);
+  document.getElementById('sigPct').textContent = `${pctLong}% long · ${100-pctLong}% short`;
+  const price=candles[candles.length-1].c;
+  document.getElementById('sigPrice').textContent = '$'+price.toLocaleString('de-DE',{maximumFractionDigits:2});
+
+  // Stop-Loss & Take-Profit (ATR-basiert, 2:1)
+  const a=atr(candles,14);
+  const lvl=document.getElementById('levels');
+  const fmt=x=>'$'+x.toLocaleString('de-DE',{maximumFractionDigits:2});
+  let sl=null, tp=null;
+  if(state==='long'){
+    sl=price-1.5*a; tp=price+3*a;
+    lvl.innerHTML=`<span class="lvlSL">Stop-Loss ${fmt(sl)}</span><span class="lvlTP">Ziel (2:1) ${fmt(tp)}</span>`;
+  } else if(state==='short'){
+    sl=price+1.5*a; tp=price-3*a;
+    lvl.innerHTML=`<span class="lvlSL">Stop-Loss ${fmt(sl)}</span><span class="lvlTP">Ziel (2:1) ${fmt(tp)}</span>`;
+  } else {
+    lvl.innerHTML='';
+  }
+
+  // Candlestick-Muster (reine Info)
+  const pat=detectPattern(candles);
+  const patEl=document.getElementById('pattern');
+  if(pat){
+    const col = pat.dir==='bull'?'var(--bull)': pat.dir==='bear'?'var(--bear)':'var(--amber)';
+    patEl.innerHTML=`Muster: <span style="color:${col}">${pat.name}</span> · ${pat.hint}`;
+  } else {
+    patEl.innerHTML='';
+  }
+  drawChart(candles, sl, tp, state);
+
+  // Benachrichtigung bei Signalwechsel (nur solange App offen ist)
+  const key = sym+'_'+currentTf;
+  if(lastSignal[key] && lastSignal[key]!==state && state!=='wait'){
+    notify(`${sym.replace('USDT','')} (${currentTf}): ${state.toUpperCase()}-Signal`);
+  }
+  lastSignal[key]=state;
+}
+
+function notify(msg){
+  try{
+    if('Notification' in window){
+      if(Notification.permission==='granted') new Notification('Signal', {body:msg});
+      else if(Notification.permission!=='denied') Notification.requestPermission();
+    }
+    if(navigator.vibrate) navigator.vibrate(200);
+  }catch(e){}
+}
+
+document.getElementById('heatBtn').addEventListener('click', ()=>{
+  showHeat=!showHeat;
+  const b=document.getElementById('heatBtn');
+  b.classList.toggle('active', showHeat);
+  b.textContent = showHeat ? 'Zonen an' : 'Zonen aus';
+  refresh();
+});
+
+async function refresh(){
+  const upd=document.getElementById('updated');
+  const err=document.getElementById('err');
+  try{
+    const candles=await fetchCandles(currentSym, currentTf);
+    if(candles.length<250) throw new Error('zu wenig Daten');
+    render(currentSym, candles, score(candles));
+    upd.innerHTML=`<span class="dot"></span>${new Date().toLocaleTimeString('de-DE')} · ${currentTf} · Auto-Update ${updateSecs()}s`;
+    err.textContent='';
+  }catch(e){
+    upd.innerHTML=`<span class="dot stale"></span>offline`;
+    err.textContent='Daten nicht erreichbar';
+    err.className='err';
+  }
+  resetTimer();
+}
+
+// kürzere Zeitfenster = häufigeres Update
+function updateSecs(){
+  return currentTf==='1m' ? 15 : (currentTf==='5m'||currentTf==='15m') ? 30 : 60;
+}
+function resetTimer(){
+  if(timer) clearInterval(timer);
+  timer=setInterval(refresh, updateSecs()*1000);
+}
+
+refresh();
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refresh(); });
+</script>
+</body>
+</html>
