@@ -94,6 +94,7 @@
   <div class="coins">
     <button class="coinBtn active" data-sym="BTCUSDT" data-name="Bitcoin">BTC</button>
     <button class="coinBtn" data-sym="ETHUSDT" data-name="Ethereum">ETH</button>
+    <button class="coinBtn" data-sym="PAXGUSDT" data-name="Gold">GOLD</button>
   </div>
 
   <div class="tfs" id="tfs">
@@ -295,6 +296,29 @@ function liquidityZones(candles){
   return {zones, swings};
 }
 
+// ---------- Golden Pocket (Fibonacci 61,8%–65%) ----------
+// Nach einer starken Bewegung korrigiert der Kurs oft genau bis in
+// diese Zone und dreht dort wieder in die urspruengliche Richtung.
+function goldenPocket(candles){
+  const data=candles.slice(-120);
+  let hiIdx=0, loIdx=0;
+  data.forEach((d,i)=>{
+    if(d.h>data[hiIdx].h) hiIdx=i;
+    if(d.l<data[loIdx].l) loIdx=i;
+  });
+  const hi=data[hiIdx].h, lo=data[loIdx].l;
+  const range=hi-lo;
+  if(range<=0) return null;
+  // Richtung: kam erst das Tief (Aufwaertsbewegung) oder erst das Hoch (Abwaertsbewegung)?
+  if(loIdx<hiIdx){
+    // Aufwaertsbewegung -> Pocket liegt UNTER dem Hoch (Rücksetzer-Kaufzone)
+    return {top:hi-range*0.618, bot:hi-range*0.65, dir:'bull'};
+  } else {
+    // Abwaertsbewegung -> Pocket liegt UEBER dem Tief (Rücksetzer-Verkaufszone)
+    return {top:lo+range*0.65, bot:lo+range*0.618, dir:'bear'};
+  }
+}
+
 function drawChart(candles, sl=null, tp=null, state='wait'){
   const cv=document.getElementById('chart');
   const ctx=cv.getContext('2d');
@@ -325,6 +349,20 @@ function drawChart(candles, sl=null, tp=null, state='wait'){
       ctx.beginPath(); ctx.moveTo(0,y(s.p)); ctx.lineTo(w,y(s.p)); ctx.stroke();
       ctx.setLineDash([]);
     });
+
+    // Golden Pocket (Fib 61,8-65%)
+    const gp=goldenPocket(candles);
+    if(gp){
+      const yT=y(gp.top), yB=y(gp.bot);
+      ctx.fillStyle='rgba(255,200,60,0.20)';
+      ctx.fillRect(0, Math.min(yT,yB), w, Math.max(2,Math.abs(yB-yT)));
+      ctx.strokeStyle='rgba(255,200,60,0.75)';
+      ctx.lineWidth=1;
+      ctx.strokeRect(0, Math.min(yT,yB), w, Math.max(2,Math.abs(yB-yT)));
+      ctx.font='bold 11px monospace';
+      ctx.fillStyle='rgba(255,200,60,0.95)';
+      ctx.fillText('GP', w-24, Math.min(yT,yB)-4);
+    }
   }
 
   // SL/TP-Linien zuerst (hinter die Kerzen)
