@@ -7,7 +7,7 @@ import json, os, urllib.request
 
 # ================== EINSTELLUNGEN ==================
 NTFY_TOPIC = "kursradar-david21max-x4t7q9"   # dein privater ntfy-Kanal
-COINS = ["BTCUSDT", "ETHUSDT"]
+COINS = ["BTCUSDT", "ETHUSDT", "PAXGUST"]
 TIMEFRAMES = ["15m", "1h", "4h", "1d"]
 HOSTS = [
     "https://data-api.binance.vision/api/v3",
