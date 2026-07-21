@@ -4,7 +4,7 @@
  "BTCUSDT_4h": "LONG",
  "BTCUSDT_1d": "WARTEN",
  "ETHUSDT_15m": "WARTEN",
- "ETHUSDT_1h": "LONG",
+ "ETHUSDT_1h": "WARTEN",
  "ETHUSDT_4h": "LONG",
- "ETHUSDT_1d": "WARTEN"
+ "ETHUSDT_1d": "LONG"
 }
