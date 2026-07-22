@@ -113,6 +113,7 @@
     <div class="sigPrice" id="sigPrice"></div>
     <div class="levels" id="levels"></div>
     <div class="pattern" id="pattern"></div>
+    <div class="pattern" id="gpstats"></div>
   </div>
 
   <div class="chartWrap">
@@ -319,6 +320,31 @@ function goldenPocket(candles){
   }
 }
 
+// ---------- GP-Statistik: wie oft hat die Golden-Pocket-Zone gehalten? ----------
+function gpStats(candles, horizon=10){
+  let held=0, total=0, lastTouch=-999;
+  for(let i=130;i<candles.length-horizon;i++){
+    const gp=goldenPocket(candles.slice(0,i+1));
+    if(!gp) continue;
+    const c=candles[i];
+    const touches = c.l<=gp.top && c.h>=gp.bot;
+    if(!touches || i-lastTouch<10) continue; // Doppelzählung vermeiden
+    lastTouch=i; total++;
+    const future=candles.slice(i+1,i+1+horizon);
+    if(gp.dir==='bull'){
+      // Kaufzone: gehalten, wenn Kurs danach über die Zone steigt statt darunter zu schließen
+      const brokeDown = future.some(f=>f.c < gp.bot*0.995);
+      const bounced   = future.some(f=>f.c > gp.top*1.005);
+      if(bounced && !brokeDown) held++;
+    } else {
+      const brokeUp  = future.some(f=>f.c > gp.top*1.005);
+      const rejected = future.some(f=>f.c < gp.bot*0.995);
+      if(rejected && !brokeUp) held++;
+    }
+  }
+  return {held, total};
+}
+
 function drawChart(candles, sl=null, tp=null, state='wait'){
   const cv=document.getElementById('chart');
   const ctx=cv.getContext('2d');
@@ -427,6 +453,19 @@ function render(sym, candles, s){
     patEl.innerHTML=`Muster: <span style="color:${col}">${pat.name}</span> · ${pat.hint}`;
   } else {
     patEl.innerHTML='';
+  }
+
+  // GP-Statistik (auf Basis der geladenen Historie dieses Zeitfensters)
+  const gs=gpStats(candles);
+  const gsEl=document.getElementById('gpstats');
+  if(gs.total>=5){
+    const pctGp=Math.round(gs.held/gs.total*100);
+    const col = pctGp>=65?'var(--bull)': pctGp<=45?'var(--bear)':'var(--amber)';
+    gsEl.innerHTML=`Golden Pocket hier: <span style="color:${col}">gehalten ${gs.held}/${gs.total} (${pctGp}%)</span>`;
+  } else if(gs.total>0){
+    gsEl.innerHTML=`Golden Pocket hier: erst ${gs.total} Fälle – zu wenig für eine Quote`;
+  } else {
+    gsEl.innerHTML='';
   }
   drawChart(candles, sl, tp, state);
 
