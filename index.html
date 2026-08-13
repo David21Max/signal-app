@@ -71,6 +71,29 @@
   }
   .pattern:empty{display:none;}
 
+  .setupCard{
+    background:var(--panel); border:1px solid var(--line); border-radius:16px;
+    padding:16px 18px; margin-top:14px; display:none;
+  }
+  .setupCard.show{display:block;}
+  .setupTitle{
+    font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px;
+    display:flex; justify-content:space-between; margin-bottom:10px;
+  }
+  .setupTitle .cnt{font-family:'JetBrains Mono',monospace; font-size:12px;}
+  .setupList{display:flex; flex-direction:column; gap:7px;}
+  .setupItem{
+    display:flex; align-items:center; gap:8px;
+    font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted);
+  }
+  .setupItem.done{color:var(--text);}
+  .setupItem .chk{width:14px; text-align:center; color:var(--line);}
+  .setupItem.done .chk{color:var(--bull);}
+  .setupNote{
+    font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted);
+    margin-top:12px; line-height:1.6; border-top:1px solid var(--line); padding-top:10px;
+  }
+
   .chartWrap{flex:1; min-height:220px; background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:14px; position:relative;}
   canvas#chart{width:100%; height:100%; display:block;}
 
@@ -118,6 +141,12 @@
 
   <div class="chartWrap">
     <canvas id="chart"></canvas>
+  </div>
+
+  <div class="setupCard" id="setupCard">
+    <div class="setupTitle" id="setupTitle"></div>
+    <div class="setupList" id="setupList"></div>
+    <div class="setupNote">Zusatz-Ebene (Liquidity Sweep · Struktur-Bruch · Retest) – reine Info, fließt nicht in Long/Short/Warten ein.</div>
   </div>
 
   <div class="foot">
@@ -411,6 +440,98 @@ function orderBlocks(candles){
   };
 }
 
+// ---------- SMC-Setup-Check: Liquidity Sweep -> Struktur-Bruch -> Retest ----------
+// Reine Zusatz-Info (siehe Hinweis in der App) - beeinflusst NICHT den Long/Short/Warten-Score.
+function swingPoints(candles, lookback=150, w=3){
+  const start=Math.max(w, candles.length-lookback);
+  const pts=[];
+  for(let i=start;i<candles.length-w;i++){
+    const seg=candles.slice(i-w,i+w+1);
+    if(candles[i].h>=Math.max(...seg.map(d=>d.h))) pts.push({idx:i,p:candles[i].h,type:'high'});
+    if(candles[i].l<=Math.min(...seg.map(d=>d.l))) pts.push({idx:i,p:candles[i].l,type:'low'});
+  }
+  return pts;
+}
+
+// Tief/Hoch kurz verletzt, dann sofort zurückerobert = Stops wurden "abgeholt"
+function findSweep(candles, swing){
+  if(!swing) return null;
+  let found=null;
+  for(let j=swing.idx+1;j<candles.length;j++){
+    if(swing.type==='low' && candles[j].l < swing.p){
+      for(let k=j;k<Math.min(candles.length,j+5);k++)
+        if(candles[k].c > swing.p) found={idx:k, level:swing.p};
+    }
+    if(swing.type==='high' && candles[j].h > swing.p){
+      for(let k=j;k<Math.min(candles.length,j+5);k++)
+        if(candles[k].c < swing.p) found={idx:k, level:swing.p};
+    }
+  }
+  return found;
+}
+
+// Bruch eines Swings per Kerzenschluss = BOS (Fortsetzung) oder CHoCH (moeglicher Trendwechsel)
+function structureBreak(candles, swings){
+  const highs=swings.filter(s=>s.type==='high'), lows=swings.filter(s=>s.type==='low');
+  let bull=null, bear=null;
+  if(highs.length){
+    const last=highs[highs.length-1], prev=highs.length>1?highs[highs.length-2]:null;
+    for(let j=last.idx+1;j<candles.length;j++)
+      if(candles[j].c>last.p) bull={idx:j, level:last.p, kind: prev && last.p>prev.p ? 'BOS':'CHoCH'};
+  }
+  if(lows.length){
+    const last=lows[lows.length-1], prev=lows.length>1?lows[lows.length-2]:null;
+    for(let j=last.idx+1;j<candles.length;j++)
+      if(candles[j].c<last.p) bear={idx:j, level:last.p, kind: prev && last.p<prev.p ? 'BOS':'CHoCH'};
+  }
+  return {bull, bear};
+}
+
+function nearKeyLevel(price, gp, obs, dir, a){
+  if(gp && gp.dir===dir && price>=gp.bot-a*0.3 && price<=gp.top+a*0.3) return true;
+  const list = dir==='bull' ? obs.bulls : obs.bears;
+  return list.some(z=>price>=z.lo-a*0.3 && price<=z.hi+a*0.3);
+}
+
+function retestActive(candles, brk, a){
+  if(!brk) return false;
+  const since=candles.length-1-brk.idx;
+  if(since<1 || since>20) return false;
+  return Math.abs(candles[candles.length-1].c - brk.level) <= a*0.6;
+}
+
+function setupCheck(candles){
+  const n=candles.length;
+  const sw=swingPoints(candles);
+  const lastLow=[...sw].reverse().find(s=>s.type==='low');
+  const lastHigh=[...sw].reverse().find(s=>s.type==='high');
+  const sweepBull=findSweep(candles,lastLow), sweepBear=findSweep(candles,lastHigh);
+  const brk=structureBreak(candles, sw);
+  const a=atr(candles,14);
+  const gp=goldenPocket(candles), obs=orderBlocks(candles);
+  const price=candles[n-1].c;
+
+  // Kandidat = juengstes der vier moeglichen Ereignisse
+  let dir=null, latestIdx=-1;
+  [['bull',brk.bull?brk.bull.idx:-1],['bear',brk.bear?brk.bear.idx:-1],
+   ['bull',sweepBull?sweepBull.idx:-1],['bear',sweepBear?sweepBear.idx:-1]]
+    .forEach(([d,idx])=>{ if(idx>latestIdx){ latestIdx=idx; dir=d; } });
+  if(!dir || n-1-latestIdx>25) return null;
+
+  const c=candles.map(x=>x.c);
+  const eF=ema(c,20), eM=ema(c,50), eS=ema(c,200), i=n-1;
+  const trend = dir==='bull'
+    ? (c[i]>eF[i] && eF[i]>eM[i] && eM[i]>eS[i])
+    : (c[i]<eF[i] && eF[i]<eM[i] && eM[i]<eS[i]);
+  const level = nearKeyLevel(price, gp, obs, dir, a);
+  const sweepOk = dir==='bull' ? (!!sweepBull && n-1-sweepBull.idx<=15) : (!!sweepBear && n-1-sweepBear.idx<=15);
+  const brkObj = dir==='bull' ? brk.bull : brk.bear;
+  const retest = retestActive(candles, brkObj, a);
+  const count=[trend,level,sweepOk,!!brkObj,retest].filter(Boolean).length;
+
+  return {dir, trend, level, sweep:sweepOk, brokeStructure:!!brkObj, retest, count, kind: brkObj?brkObj.kind:null};
+}
+
 function drawChart(candles, sl=null, tp=null, state='wait'){
   const cv=document.getElementById('chart');
   const ctx=cv.getContext('2d');
@@ -559,6 +680,30 @@ function render(sym, candles, s){
     gsEl.innerHTML=`Golden Pocket hier: erst ${gs.total} Fälle – zu wenig für eine Quote`;
   } else {
     gsEl.innerHTML='';
+  }
+
+  // SMC-Setup-Check: Liquidity Sweep -> Struktur-Bruch -> Retest (reine Info)
+  const setup=setupCheck(candles);
+  const setupCard=document.getElementById('setupCard');
+  if(setup){
+    const dirWord = setup.dir==='bull'?'Long':'Short';
+    const dirCol  = setup.dir==='bull'?'var(--bull)':'var(--bear)';
+    const cntCol  = setup.count>=4?'var(--bull)': setup.count>=2?'var(--amber)':'var(--muted)';
+    document.getElementById('setupTitle').innerHTML =
+      `<span>Setup-Check · <span style="color:${dirCol}">${dirWord}</span></span><span class="cnt" style="color:${cntCol}">${setup.count}/5</span>`;
+    const rows=[
+      ['Trend eindeutig', setup.trend],
+      ['An wichtigem Level (GP/OB)', setup.level],
+      ['Liquidity Sweep', setup.sweep],
+      [`Struktur-Bruch${setup.kind?' ('+setup.kind+')':''}`, setup.brokeStructure],
+      ['Retest aktiv', setup.retest],
+    ];
+    document.getElementById('setupList').innerHTML = rows.map(([label,ok])=>
+      `<div class="setupItem ${ok?'done':''}"><span class="chk">${ok?'✓':'○'}</span>${label}</div>`
+    ).join('');
+    setupCard.classList.add('show');
+  } else {
+    setupCard.classList.remove('show');
   }
   drawChart(candles, sl, tp, state);
 
