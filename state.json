@@ -6,5 +6,5 @@
  "ETHUSDT_15m": "SHORT",
  "ETHUSDT_1h": "SHORT",
  "ETHUSDT_4h": "SHORT",
- "ETHUSDT_1d": "WARTEN"
+ "ETHUSDT_1d": "SHORT"
 }
